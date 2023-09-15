@@ -41,6 +41,16 @@ const (
 	// ReplaceConcurrent cancels currently running job and replaces it with a new one.
 	ReplaceConcurrent ConcurrencyPolicy = "Replace"
 )
+//// NodeMaintenanceGroup defines the jobs list
+//type NodeMaintenanceGroup struct {
+//	// +kubebuilder:validation:Required
+//	// +kubebuilder:validation:MaxLength=40
+//	// +kubebuilder:validation:Pattern=[a-z0-9-]+
+//	Name string `json:"name"`
+//	// +kubebuilder:validation:Required
+//	//+kubebuilder:validation:MinLength=0
+//	Schedule string `json:"schedule"`
+//}
 
 // NodeMaintenanceSpec defines the desired state of NodeMaintenance
 type NodeMaintenanceSpec struct {

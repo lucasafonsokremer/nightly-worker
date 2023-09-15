@@ -18,11 +18,19 @@ package controller
 
 import (
 	"context"
+	"fmt"
+        "sort"
+        "time"
 
-	"k8s.io/apimachinery/pkg/runtime"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
+        "github.com/robfig/cron"
+        kbatch "k8s.io/api/batch/v1"
+        corev1 "k8s.io/api/core/v1"
+        metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+        "k8s.io/apimachinery/pkg/runtime"
+        ref "k8s.io/client-go/tools/reference"
+        ctrl "sigs.k8s.io/controller-runtime"
+        "sigs.k8s.io/controller-runtime/pkg/client"
+        "sigs.k8s.io/controller-runtime/pkg/log"
 
 	maintenancev1alpha1 "nightly-worker/api/v1alpha1"
 )
@@ -31,11 +39,28 @@ import (
 type NodeMaintenanceReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	Clock
+}
+
+type realClock struct{}
+
+func (_ realClock) Now() time.Time { return time.Now() }
+
+// clock knows how to get the current time.
+// It can be used to fake out timing for testing.
+type Clock interface {
+    Now() time.Time
 }
 
 //+kubebuilder:rbac:groups=maintenance.nightlyworker.com,resources=nodemaintenances,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=maintenance.nightlyworker.com,resources=nodemaintenances/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=maintenance.nightlyworker.com,resources=nodemaintenances/finalizers,verbs=update
+//+kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get
+
+var (
+    scheduledTimeAnnotation = "nodemaintenances.maintenance.nightlyworker.com/scheduled-at"
+)
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -47,9 +72,26 @@ type NodeMaintenanceReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.15.0/pkg/reconcile
 func (r *NodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	log := log.FromContext(ctx)
 
-	// TODO(user): your logic here
+	// Load CronJob by name
+	var cronJob batchv1.CronJob
+        if err := r.Get(ctx, req.NamespacedName, &cronJob); err != nil {
+                log.Error(err, "unable to fetch CronJob")
+                // we'll ignore not-found errors, since they can't be fixed by an immediate
+                // requeue (we'll need to wait for a new notification), and we can get them
+                // on deleted requests.
+                return ctrl.Result{}, client.IgnoreNotFound(err)
+        }
+
+	// List all active jobs:
+	var childJobs kbatch.JobList
+        if err := r.List(ctx, &childJobs, client.InNamespace(req.Namespace), client.MatchingFields{jobOwnerKey: req.Name}); err != nil {
+            log.Error(err, "unable to list child Jobs")
+            return ctrl.Result{}, err
+        }
+
+
 
 	return ctrl.Result{}, nil
 }
